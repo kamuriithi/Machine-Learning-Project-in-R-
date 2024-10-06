@@ -1,0 +1,281 @@
+---
+title: "Malaria ML Model DashBoard(Kenya)"
+author: "D.K.Muriithi"
+date: "`r Sys.Date()`"
+output: 
+      html_document:  
+  word_document: default
+  pdf_document: default
+  df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	fig.height = 4,
+	fig.width = 8,
+	message = FALSE,
+	warning = FALSE,
+	comment = NA)
+```
+
+## Confirmation and setting of working directory
+```{r}
+setwd("~/TMMS2024")
+```
+
+## Installation and loading of necessary packages/libraries
+
+## Loading libraries
+```{r}
+library(caret) #for training machine learning models
+library(psych) ##for description of  data
+library(ggplot2) ##for data visualization
+library(caretEnsemble)##enables the creation of ensemble models
+library(tidyverse) ##for data manipulation
+library(mlbench)  ## For benchmarking ML Models
+library(flextable) ## To create and style tables
+library(mltools) #for hyperparameter tuning
+library(tictoc) #for determining the time taken for a model to run
+library(ROSE)  ## for random oversampling
+library(smotefamily) ## for smote sampling
+library(ROCR) ##For ROC curve
+library(pROC) ## For visualizing, smoothing, and comparing ROC curves
+library(e1071) ## For statistical modeling and  machine learning tasks
+library(class) ## For classification using k-Nearest Neighbors and other methods
+library(caTools) ## For splitting data into training and testing sets
+library(MASS) ## Provides plotting functions and datasets
+library(ISLR) ## for practical applications of statistical learning methods
+library(boot) ## Useful for performing bootstrap resampling
+library(cvTools) ## Contains functions for cross-validation, bootstrapping, and other resampling methods
+```
+
+## Loading the given Malaria data
+
+https://statistics.knbs.or.ke/nada/index.php/catalog/111/related-materials
+
+```{r}
+mdata = read.csv("final_malaria_survey_data.csv", header = TRUE)
+head(mdata)
+```
+## Exporatory of the dataset
+```{r}
+#dim(mdata)      ## View the Dimension of the Data
+#names(mdata)     ## View the variable/features/column names
+#summary(mdata)    ## Descriptive Statistics
+#describe(mdata)   ## Descriptive Statistics
+#sum(is.na(mdata))  ## Check for missing data
+#na.omit(mdata)     ## Remove rows with any missing values
+#is.na(mdata$Malaria.Test)  ## checks for missing values in the Malaria.Test column of your data frame
+```
+
+## Note: For the purpose of this training: It is assumed that the data is already clean and preprocessed 
+
+# Factor the Target variable
+```{r}
+mdata$Malaria.Test <- as.factor(mdata$Malaria.Test)
+```
+
+# Plot Target variable using ggplot function
+```{r}
+ggplot(mdata, aes(x = Malaria.Test)) + 
+  geom_bar(fill= c("green", "red")) + 
+  labs(x = "Malaria Test", 
+       y = "Respondent",
+       tittle = "Malaria Diagnosis Results",
+       caption = "Source: KNBS 2021 Data") +
+    theme_classic()
+```
+
+# Check for zero variance predictors:
+```{r}
+nzv <- nearZeroVar(mdata[,-14], saveMetrics = TRUE) ## Function called nearZeroVar and captures its output in the variable nzv
+```
+
+# Remove nzv
+```{r}
+mdata1 <- mdata[, !nzv$nzv] ## Removing features with little to no variation
+dim(mdata1)
+```
+
+## DATA PARTITION FOR MACHINE LEARNING
+```{r}
+set.seed(123)
+index = sample(2, nrow(mdata1),replace =T, prob=c(0.70,0.30))
+train = mdata1[index ==1,]
+test = mdata1[index ==2,]
+```
+
+# Get the dimensions of your train and test data
+```{r}
+dim(train)
+dim(test)
+```
+
+# Prepare training scheme for cross-validation 
+
+# Cross-validation
+This involves splitting the data into multiple subsets (folds), training the model on some folds, and testing it on the remaining fold. The process is repeated for each fold
+# Repeated cross-validation 
+This involves performing cross-validation multiple times to reduce the variability of the results reducing the likelihood of overfitting
+
+```{r}
+control <- trainControl(method = "repeatedcv", number = 10, repeats=5, sampling ='smote')# SMOTE sampling
+```
+
+# Train a Random Forest model
+# Random Forests 
+This is an ensemble learning method that combines multiple decision trees to improve prediction accuracy and reduce variance.
+
+# mtry
+This parameter controls the number of features randomly chosen as candidates for splitting a node in each tree.
+```{r}
+tuneGrid_rf <- expand.grid(mtry = c(2, 4, 6, 8, 12))
+```
+
+
+```{r}
+set.seed(123)
+tic()
+RFModel <- train(factor(Malaria.Test)~., 
+                 data=train, 
+                 method="rf", 
+                 trControl=control, 
+                 tuneGrid=tuneGrid_rf,
+                 na.action = na.omit)
+toc()
+#RFModel
+#RFModel$results
+```
+
+```{r}
+plot(RFModel)
+```
+
+
+```{r}
+# Prediction on test data set using RF model
+RFpred=predict(RFModel,newdata = test)
+
+# Evaluate RF model performance metrics
+RF_CM<- confusionMatrix(RFpred, as.factor(test$Malaria.Test), positive = "Positive", mode='everything')
+M2<- RF_CM$byClass[c(1, 2, 5, 7, 11)]
+M2
+
+# Ploting Random Forest confusion matrix
+fourfoldplot(RF_CM$table, col=rainbow(4), main="RF Confusion Matrix") #RF Confusion Matrix 4fold plot
+
+# Show relative importance of features
+# Plot using R base function
+plot(varImp(RFModel, scale=T))
+
+# Alternatively
+vip::vip(RFModel)
+
+# Alternatively using ggplot function
+var_imp <-varImp(RFModel)
+ggplot(var_imp, aes(x = reorder(Variable, Importance), y = importance)) +
+  geom_bar(stat = "identity", fill = "tomato") +
+  coord_flip() +
+  xlab("Variable") +
+  ylab("Importance") +
+  ggtitle("Feature Importance Plot for RF Model")
+```
+
+# Create ROC curve for RF model
+```{r}
+# Make predictions on the test set using type='prob'
+predrf <- predict(RFModel, newdata = test, type = "prob")
+# Create a prediction object needed by ROCR
+pred_rf <- prediction(predrf[, "Positive"], test$Malaria.Test)
+# Calculate performance measures like ROC curve
+perf_rf <- performance(pred_rf, "tpr", "fpr")
+# Plot the ROC curve
+plot(perf_rf, colorize = TRUE, main = "ROC Curve-Random Forest")
+# Compute AUC
+auc_value <- performance(pred_rf, "auc")@y.values[[1]]
+auc_label <- paste("AUC =", round(auc_value, 2))
+# Add AUC value as text on the plot
+text(0.5, 0.3, auc_label, col = "red", cex = 1.5)  # Adjust position
+```
+
+
+```{r}
+# Save the model to a file
+saveRDS(RFModel, "RANDOM_FOREST.rds")
+#View(mdata1)
+```
+
+
+```{r}
+library(shiny)
+
+# Load the trained model
+RFModel <- readRDS("RANDOM_FOREST.rds")
+
+# Define UI
+ui <- fluidPage(
+  titlePanel("ML Model Dashboard"),
+  sidebarLayout(
+    sidebarPanel(
+      numericInput("Region","Region",value = 1) ,
+      numericInput("County","County" , value =  19) , 
+      numericInput("Zones", "Zones", value = 1 ) ,   
+      numericInput("Has.mosquito.bed.net.for.sleeping" ,"Has.mosquito.bed.net.for.sleeping",value = 1 ),
+      numericInput("Children.under.5.who.slept.under.mosquito.net.last.night","Children.under.5.who.slept.under.mosquito.net.last.night", value = 1),
+      numericInput("Number.of.Mosquito.bed.nets","Number.of.Mosquito.bed.nets",value = 1),
+      numericInput("Number.of.children.under.mosquito.bed.nets.last.night", "Number.of.children.under.mosquito.bed.nets.last.night", value =1),
+      numericInput("Anaemia.Level", "Anaemia.Level",value = 1 ) , 
+      numericInput("Mothers.highest.educational.level" , "Mothers.highest.educational.level" , value = 1), 
+      numericInput("The.type.of.mosquito.net.the.person.slept.under.last.night","The.type.of.mosquito.net.the.person.slept.under.last.night",value = 1),
+      numericInput("Presence.of.species..Falciparum","Presence.of.species..Falciparum",value =  1 ) ,
+      numericInput("Presence.of.species..Malariae","Presence.of.species..Malariae",value = 0 ),
+      numericInput("Presence.of.species..Ovale" , "Presence.of.species..Ovale" ,value =  0 ) ,  
+      actionButton("predict", "Predict")
+    ),
+    mainPanel(
+      h3("Prediction:"),
+      verbatimTextOutput("result")
+    )
+  )
+)
+
+# Define server logic
+server <- function(input, output) {
+  observeEvent(input$predict, {
+    # Create a new data frame with user input
+    new_data <- data.frame(
+      Region = input$Region,
+      County = input$County,
+      Zones = input$Zones,
+      Has.mosquito.bed.net.for.sleeping= input$Has.mosquito.bed.net.for.sleeping,
+      Children.under.5.who.slept.under.mosquito.net.last.night= input$Children.under.5.who.slept.under.mosquito.net.last.night,
+      Number.of.Mosquito.bed.nets = input$Number.of.Mosquito.bed.nets,
+      Number.of.children.under.mosquito.bed.nets.last.night = input$Number.of.children.under.mosquito.bed.nets.last.night,
+      Anaemia.Level = input$Anaemia.Level,
+      Mothers.highest.educational.level = input$Mothers.highest.educational.level,
+      The.type.of.mosquito.net.the.person.slept.under.last.night = input$The.type.of.mosquito.net.the.person.slept.under.last.night,
+      Presence.of.species..Falciparum = input$Presence.of.species..Falciparum,
+      Presence.of.species..Malariae = input$Presence.of.species..Malariae,
+      Presence.of.species..Ovale= input$Presence.of.species..Ovale
+  )
+    
+    # Predict the species
+    prediction <- predict(RFModel, new_data)
+    
+    # Show the result
+    output$result <- renderText({ as.character(prediction) })
+  })
+}
+```
+
+
+```{r}
+
+# Run the Shiny app
+shinyApp(ui = ui, server = server)
+```
+
+
+
+                         
