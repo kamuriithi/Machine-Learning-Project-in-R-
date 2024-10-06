@@ -1,0 +1,426 @@
+---
+title: "Resampling Techniques for Handling Malaria Imbalance Data"
+author: "D.K.MURIITHI"
+date: "2024-07-28"
+output:
+  html_document:  
+  word_document: default
+  pdf_document: default
+  df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.height = 4, fig.width = 6,	message = FALSE, warning = FALSE,	comment = NA)
+```
+## confirmation and setting of working directory
+
+```{r}
+setwd("C:\\Users\\Prof DK\\Desktop\\TMMS2024")
+```
+
+
+## Installation and loading of necessary packages/libraries
+
+# Loading libraries
+```{r}
+library(caret) #for training machine learning models
+library(psych) ##for description of  data
+library(ggplot2) ##for data visualization
+library(caretEnsemble)##enables the creation of ensemble models
+library(tidyverse) ##for data manipulation
+library(mlbench)  ## For benchmarking ML Models
+library(flextable) ## To create and style tables
+library(mltools) #for hyperparameter tuning
+library(tictoc) #for determining the time taken for a model to run
+library(ROSE)  ## for random oversampling
+library(smotefamily) ## for smote sampling
+library(ROCR) ##For ROC curve
+library(pROC) ## For visualizing, smoothing, and comparing ROC curves
+library(e1071) ## For statistical modeling and  machine learning tasks
+library(class) ## For classification using k-Nearest Neighbors and other methods
+library(caTools) ## For splitting data into training and testing sets
+library(MASS) ## Provides plotting functions and datasets
+library(ISLR) ## for practical applications of statistical learning methods
+library(boot) ## Useful for performing bootstrap resampling
+library(cvTools) ## Contains functions for cross-validation, bootstrapping, and other resampling methods
+```
+
+# ----------------------------------------------------
+## Resampling Techniques for Handling Data Imbalance
+# ----------------------------------------------------
+● Oversampling
+● Undersampling
+● Combined Resampling
+
+ * Resampling techniques are a common set of strategies used to address data imbalance in machine         learning. 
+ 
+ * These techniques involve modifying the dataset by either increasing the number of minority class       samples (oversampling) or 
+ * reducing the number of majority class samples (undersampling). Here are some key resampling            techniques:
+ 
+# 1. Oversampling:
+
+#● Random Oversampling: 
+In this method, random instances from the minority class are duplicated until a more balanced distribution is achieved. While this can balance the class distribution, it may lead to overfitting.
+  
+#● SMOTE (Synthetic Minority Over-sampling Technique): 
+SMOTE generates synthetic instances for the minority class by interpolating between neighboring instances. This approach creates new, realistic data points and helps prevent overfitting compared to random oversampling.
+
+#● ADASYN (Adaptive Synthetic Sampling)
+  * Description: An extension of SMOTE that focuses on generating more synthetic data for minority class examples that are harder to learn.
+  * Advantages: Improves the focus on difficult minority class examples, potentially enhancing model performance.
+  * Disadvantages: Similar to SMOTE, it can introduce noise if not applied carefully.
+
+#● SMOTEN
+#● SVM-SMOTE 
+#● Random oversampler
+#● Kmeans-SMOTE
+
+# 2. Undersampling
+
+#● Random Undersampling
+  * Description: Involves randomly removing examples from the majority class to balance the dataset.
+  * Advantages: Reduces the size of the dataset, making the training process faster.
+  * Disadvantages: Can lead to loss of valuable information and underfitting.
+
+#● Tomek Links
+  *Description: Removes examples from the majority class that are close to minority class examples, forming Tomek links.
+  *Advantages: Helps clean the boundary between classes, improving model performance.
+  *Disadvantages: Only removes a small number of majority class examples, may not fully balance the dataset.
+  
+#● Random undersampler  
+#● NearMiss
+#● condensed Nearest Neighbour
+#● Edited Nearest Neaghbour
+  
+# 3. Combined Resampling
+
+#● Hybrid Methods
+ *Description: Combines several resampling techniques to leverage their strengths and mitigate their weaknesses.
+ *Advantages: Can provide a more balanced and effective approach.
+ *Disadvantages: More complex to implement and require careful tuning.
+ 
+## Consideration for Effective Resampling
+* Understand Your Data: Know the extent and impact of imbalance.
+* Evaluate Multiple Techniques: Different techniques might work better for different datasets.
+* Cross-Validation: Use cross-validation to ensure that the model generalizes well.
+* Performance Metrics: Focus on metrics like F1-score, precision, recall, and AUC-ROC instead of accuracy.
+
+# ---------------------------------------------------- 
+## Loading the given Malaria data
+# ----------------------------------------------------
+```{r}
+mdata = read.csv("final_malaria_survey_data.csv", header = TRUE)
+head(mdata,4)
+```
+
+```{r}
+attach(mdata)
+dim(mdata)
+head(mdata,5)
+names(mdata)
+str(mdata)
+summary(mdata)   ###Descriptive Statistics
+describe(mdata)  ###Descriptive Statistics
+sum(is.na(mdata)) ###Check for missing data
+```
+# Plot Target Variable
+```{r}
+plot(factor(Malaria.Test), 
+     names= c("Negative", "Positive"), 
+     col=c(2,3), 
+     ylim=c(0, 3000), ylab= "Respondent", xlab= "Malaria Diagnosis", main = "Malaria Diagnosis Results")
+#box()
+```
+
+# Alternatively use of ggplot 
+```{r}
+ggplot(mdata, aes(x = factor(Malaria.Test), fill = Malaria.Test)) + 
+  geom_bar() + 
+  labs(x = "Malaria Diagnosis", y = "Respondent") +
+  theme_classic()
+```
+# Set the seed for reproducibility
+```{r}
+set.seed(2024) ## This line sets the random seed for the analysis
+```
+
+* Random seeds are used to ensure reproducibility. 
+
+* By setting the seed to 2024, you're telling the program to always start with the same "random" starting point when generating random numbers needed for the analysis. 
+
+* This is helpful for debugging or comparing results across different runs.
+
+# -------------------------------------------------
+## DATA PARTITION
+# -------------------------------------------------
+```{r}
+set.seed(2024)
+index=sample(2, nrow(mdata),replace =TRUE, prob=c(0.70,0.30))
+train=mdata[index==1,]
+test= mdata[index==2,]
+#Get the dimensions of your train and test data
+dim(train)
+dim(test)
+```
+# Now Let's train some machine learning models using package caret
+
+* The caret R package (short for Classification and regression Training) to carry out machine learning tasks in RStudio
+
+* The caret package offers a range of tools and models for classification and regression machine learning problems(Kuhn et al. 2021)
+
+* In fact, it offers over 239 different machine learning models from which to choose. 
+
+* Don’t worry, we don’t expect you to use them all!
+
+# VIEW THE MODELS IN CARET
+
+```{r}
+models= getModelInfo()
+#names(models)
+```
+
+# ----------------------------------------------------------------------------------------------
+# Handle Imbalanced: Hybrid Method 
+# ----------------------------------------------------------------------------------------------
+```{r}
+library(dplyr)
+hybrid <- ovun.sample(Malaria.Test~., data = train, method = "both")$data
+dim(hybrid)
+```
+
+
+# Plot Target variable using ggplot function
+```{r}
+ggplot(hybrid, aes(x = Malaria.Test, fill = Malaria.Test)) + 
+  geom_bar() + 
+  labs(x = "Malaria Test", 
+       y = "Respondent",
+       tittle = "Malaria Diagnosis Results",
+       caption = "Source: KNBS 2021 Data") +
+    theme_classic()
+```
+# ----------------------------------------------------------------------------------------------
+## Building Machine Learning Models
+# ----------------------------------------------------------------------------------------------
+
+# prepare training scheme for cross-validation
+```{r}
+control <- trainControl(method="repeatedcv", number=10, repeats=5)
+```
+
+# Train a SVM model
+```{r}
+set.seed(2024)
+tic()
+both.svmModel <- train(Malaria.Test~., data=hybrid, method="svmRadial", trControl=control)
+toc()
+both.svmModel
+plot(both.svmModel)
+both.svmpred=predict(both.svmModel,newdata = test)
+both.SVM.cM<- confusionMatrix(both.svmpred,as.factor(test$Malaria.Test), positive = 'Positive', mode='everything')
+both.SVM.cM
+both.m1<- both.SVM.cM$byClass[c(1, 2, 5, 7, 11)]
+both.m1
+#plotting confusion matrix
+both.SVM.cM$table
+fourfoldplot(both.SVM.cM$table, col=rainbow(4), main="Hybrid SVM Confusion Matrix")
+```
+# Train a Random Forest model
+```{r}
+set.seed(2024)
+tic()
+both.RFModel <- train(Malaria.Test~., data=hybrid, method="rf", trControl=control)
+toc()
+both.RFModel
+both.RFpred=predict(both.RFModel,newdata = test)
+both.RF.cM<- confusionMatrix(both.RFpred,as.factor(test$Malaria.Test), positive = 'Positive', mode='everything')
+both.m2<- both.RF.cM$byClass[c(1, 2, 5, 7, 11)]
+both.m2
+#plotting confusion matrix
+both.RF.cM$table
+fourfoldplot(both.RF.cM$table, col=rainbow(4), main="Hybrid RF Confusion Matrix")
+```
+
+# Train a Logisitic Regression model
+```{r}
+set.seed(2024)
+both.lrModel <- train(Malaria.Test~., data=hybrid, method="glm", trControl=control)
+both.lrModel
+both.lrpred=predict(both.lrModel,newdata = test)
+both.lr.cM<- confusionMatrix(both.lrpred,as.factor(test$Malaria.Test), positive = 'Positive', mode='everything')
+both.m3<- both.lr.cM$byClass[c(1, 2, 5, 7, 11)]
+both.m3
+#plotting confusion matrix
+both.lr.cM$table
+fourfoldplot(both.lr.cM$table, col=rainbow(4), main="Hybrid LR Confusion Matrix")
+```
+# Train a k- Nearest Neigbour model
+```{r}
+set.seed(2024)
+both.knnModel <- train(Malaria.Test~., data=hybrid, method="knn", trControl=control)
+both.knnModel
+both.knnpred=predict(both.knnModel,newdata = test)
+both.knn.cM<- confusionMatrix(both.knnpred,as.factor(test$Malaria.Test), positive = 'Positive', mode='everything')
+both.m4<- both.knn.cM$byClass[c(1, 2, 5, 7, 11)]
+both.m4
+#plotting confusion matrix
+both.knn.cM$table
+fourfoldplot(both.knn.cM$table, col=rainbow(4), main="Hybrid KNN Confusion Matrix")
+```
+# Train a Neural Net model
+```{r}
+set.seed(2024)
+tic()
+both.nnModel <- train(Malaria.Test~., data=hybrid, method="nnet", trControl=control)
+toc()
+both.nnModel
+both.nnpred=predict(both.nnModel,newdata = test)
+both.nn.cM<- confusionMatrix(both.nnpred,as.factor(test$Malaria.Test), positive = 'Positive', mode='everything')
+both.m5<- both.nn.cM$byClass[c(1, 2, 5, 7, 11)]
+both.m5
+#plotting confusion matrix
+both.nn.cM$table
+fourfoldplot(both.nn.cM$table, col=rainbow(4), main="Hybrid NN Confusion Matrix")
+```
+# Train a Naive Bayes model
+```{r}
+set.seed(2024)
+both.nbModel <- train(Malaria.Test~., data=hybrid, method="nb", trControl=control)
+both.nbModel
+both.nbpred=predict(both.nbModel,newdata = test)
+both.nb.cM<- confusionMatrix(both.nbpred,as.factor(test$Malaria.Test), positive = 'Positive', mode='everything')
+both.m6<- both.nb.cM$byClass[c(1, 2, 5, 7, 11)]
+both.m6
+#plotting confusion matrix
+both.nb.cM$table
+fourfoldplot(both.nb.cM$table, col=rainbow(4), main="Hybrid NB Confusion Matrix")
+```
+# train a Linear Discriminant Analysis model
+```{r}
+set.seed(2024)
+both.ldaModel <- train(Malaria.Test~., data=hybrid, method="lda", trControl=control)
+both.ldaModel
+both.ldapred=predict(both.ldaModel,newdata = test)
+both.lda.cM<- confusionMatrix(both.ldapred,as.factor(test$Malaria.Test), positive = 'Positive', mode='everything')
+both.m7<- both.lda.cM$byClass[c(1, 2, 5, 7, 11)]
+both.m7
+##plotting confusion matrix
+both.lda.cM$table
+fourfoldplot(both.lda.cM$table, col=rainbow(4), main="Imbalanced LDA Confusion Matrix")
+```
+
+# Train a Decision Tree model
+```{r}
+set.seed(2024)
+both.DTModel <- train(Malaria.Test~., data=hybrid, method="rpart", trControl=control)
+both.DTModel
+both.DTpred=predict(both.DTModel,newdata = test)
+both.DT.cM<- confusionMatrix(both.DTpred,as.factor(test$Malaria.Test), positive = 'Positive', mode='everything')
+both.m8<- both.DT.cM$byClass[c(1, 2, 5, 7, 11)]
+both.m8
+##plotting confusion matrix
+both.DT.cM$table
+fourfoldplot(both.DT.cM$table, col=rainbow(4), main="Imbalanced LDA Confusion Matrix")
+```
+
+
+# Train a Bagging model
+```{r}
+set.seed(2024)
+both.bagModel <- train(Malaria.Test~., data=hybrid, method="treebag", trControl=control)
+both.bagModel
+both.bagpred=predict(both.bagModel,newdata = test)
+both.bag.cM<- confusionMatrix(both.bagpred,as.factor(test$Malaria.Test), positive = 'Positive', mode='everything')
+both.m9<- both.bag.cM$byClass[c(1, 2, 5, 7, 11)]
+both.m9
+#plotting confusion matrix
+both.bag.cM$table
+fourfoldplot(both.bag.cM$table, col=rainbow(4), main="Hybrid Bagging Confusion Matrix")
+```
+# Train a Boosting model
+```{r}
+set.seed(2024)
+tic()
+both.boModel <- train(Malaria.Test~., data=hybrid, method="ada", trControl=control)
+toc()
+both.boModel
+both.bopred=predict(both.boModel,newdata = test)
+both.bo.cM<- confusionMatrix(both.bopred,as.factor(test$Malaria.Test), positive = 'Positive', mode='everything')
+both.m10<- both.bo.cM$byClass[c(1, 2, 5, 7, 11)]
+both.m10
+#plotting confusion matrix
+both.bo.cM$table
+fourfoldplot(both.bo.cM$table, col=rainbow(4), main="Hybrid Boosting Confusion Matrix")
+```
+#------------------------------------------- measure----------------------------
+
+```{r}
+measure <-round(data.frame(SVM=both.m1, 
+                                 RF=both.m2, 
+                                 LR=both.m3, 
+                                 KNN=both.m4, 
+                                 NN=both.m5, 
+                                 NB=both.m6, 
+                                 LDA=both.m7, 
+                                 DT=both.m8,
+                                 Bagging=both.m9, 
+                                 Boosting=both.m10), 4)
+rownames(measure)=c('Sensitivity', 'Specificity', 'Precision','F1-Score', 'Balanced Accuracy')
+measure
+```
+
+
+```{r}
+results <- resamples(list(SVM=both.svmModel, 
+                          RF=both.RFModel,
+                          LR=both.lrModel,
+                          KNN=both.knnModel,
+                          nn=both.nnModel,
+                          NB=both.nbModel,
+                          LDA=both.ldaModel,
+                          DT=both.DTModel,
+                          Bagging=both.bagModel,
+                          Boosting=both.boModel))
+```
+
+# summarize the distributions of the results 
+```{r}
+library(dplyr)
+summary(results)
+```
+
+# Box-and-whisker plot of results
+This type of chart is used to visualize the distribution of data. It shows the following information:
+ * The center of the data (usually the median)
+ * The spread of the data (represented by the box)
+ * The presence of any outliers (data points that fall outside a certain range)
+ 
+```{r}
+## boxplots of results
+bwplot(results)
+```
+
+```{r}
+## dot plots of results
+dotplot(results)
+```
+
+```{r}
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
